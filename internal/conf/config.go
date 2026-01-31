@@ -1,6 +1,7 @@
 package conf
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v2"
@@ -59,6 +60,21 @@ func InitConfig() error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// 初始化配置文件（从指定路径读取）
+func InitConfigWithPath(configPath string) error {
+	cfgF, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %v", err)
+	}
+
+	err = yaml.Unmarshal(cfgF, &globalConfig)
+	if err != nil {
+		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+	fmt.Printf("[INFO] 配置文件初始化完成: %s\n", configPath)
 	return nil
 }
 
