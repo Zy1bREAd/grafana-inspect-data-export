@@ -1,28 +1,26 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"dailyDataPanel/internal/conf"
-	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
+	"fmt"
 )
 
-// 主要是封装一个操作wx API的Handler
+// WeixinRobotAPI 封装微信机器人API操作
 type WeixinRobotAPI struct {
-	URL string
+	client *HTTPClient
+	url    string
 }
 
 func NewWeixinRobotAPI() *WeixinRobotAPI {
 	appConf := conf.GetAppConfig()
 	return &WeixinRobotAPI{
-		URL: appConf.WeixinRobot.WebhookURL,
+		client: NewDefaultHTTPClient(),
+		url:    appConf.WeixinRobot.WebhookURL,
 	}
 }
 
-// 发送消息(Markdown形式)
+// Call 发送消息(Markdown形式)
 func (wx *WeixinRobotAPI) Call(ctx context.Context, mdMsg string) error {
 	payload := map[string]any{
 		"msgtype": "markdown",
@@ -30,32 +28,14 @@ func (wx *WeixinRobotAPI) Call(ctx context.Context, mdMsg string) error {
 			"content": mdMsg,
 		},
 	}
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return err
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
 	}
-	// 评论API接口地址
-	req, err := http.NewRequestWithContext(ctx, "POST", wx.URL, bytes.NewBuffer(jsonData))
+
+	_, err := wx.client.PostJSON(ctx, wx.url, payload, headers)
 	if err != nil {
-		return err
-	}
-	// req.Header.Set("PRIVATE-TOKEN", wx.AccessToken)
-	// 设置请求头，携带JSON形式的POST请求体
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	// 获取响应结果
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	// 状态码检查（成功是201）
-	if resp.StatusCode > 299 || resp.StatusCode < 200 {
-		return errors.New("request error: " + string(respBody))
+		return fmt.Errorf("发送微信机器人消息失败: %w", err)
 	}
 
 	return nil

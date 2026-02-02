@@ -38,6 +38,13 @@ type AppConfig struct {
 		QueryTimeThreshold string `yaml:"QUERY_TIME_THRESHOLD"`
 		LookBackDays       int    `yaml:"TIME_RANGE_DAYS_AGO"`
 	} `yaml:"QUERY"`
+
+	Ali struct {
+		RDS          string `yaml:"RDS"`
+		AccessKey    string `yaml:"ACCESS_KEY"`
+		AccessSecret string `yaml:"ACCESS_SECRET"`
+		Endpoion     string `yaml:"ENDPOINT"`
+	} `yaml:"ALI"`
 }
 
 // 初始化配置文件（从配置文件读取）

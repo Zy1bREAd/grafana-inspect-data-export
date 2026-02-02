@@ -12,7 +12,7 @@ var Logger *zap.Logger
 
 func GetLogger() *zap.Logger {
 	if Logger == nil {
-		log.Println("[WARN] Zap Logger not init")
+		log.Fatalln("[WARN] Zap Logger not init")
 	}
 	return Logger
 }

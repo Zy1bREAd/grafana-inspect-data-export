@@ -11,7 +11,15 @@ import (
 
 	"dailyDataPanel/internal/api"
 	"dailyDataPanel/internal/conf"
+
+	rds20140815 "github.com/alibabacloud-go/rds-20140815/v16/client"
 )
+
+// 兼容map[string]any和阿里云API数据的CSV转换方式。
+type Convertor interface {
+	Convert() (string, error)
+	FieldsMap()
+}
 
 // 结果集的结构体
 type Field struct {
@@ -19,29 +27,61 @@ type Field struct {
 	ColName string // CSV 列名
 }
 
-type CSVResult struct {
+type GrafanaResult struct {
 	Data     []api.GrafanaSourceData
+	Fields   []Field
 	BasePath string
 	FileName string
 	FullPath string
 }
 
-func NewCSVResult(data *api.GrafanaResponse, fileName string) CSVResult {
+func NewConvertor(data any, fileName string) Convertor {
 	appConf := conf.GetAppConfig()
 	if appConf.Global.ExportFilePath == "" {
 		appConf.Global.ExportFilePath = "/tmp"
 	}
-	return CSVResult{
+
+	var conv Convertor
+	switch v := data.(type) {
+	case *api.GrafanaResponse:
+		conv = &GrafanaResult{
+			Data:     v.Responses[0].Hits.Hits,
+			BasePath: appConf.Global.ExportFilePath,
+			FileName: fileName,
+		}
+	case []*rds20140815.DescribeSlowLogRecordsResponseBodyItemsSQLSlowRecord:
+		conv = &AliResult{
+			Data:     v,
+			BasePath: appConf.Global.ExportFilePath,
+			FileName: fileName,
+		}
+	default:
+		logger := conf.GetLogger()
+		logger.Warn("不支持，无法转换")
+		return nil
+	}
+	conv.FieldsMap()
+	return conv
+}
+
+func NewGrafanaResult(data *api.GrafanaResponse, fileName string) GrafanaResult {
+	appConf := conf.GetAppConfig()
+	if appConf.Global.ExportFilePath == "" {
+		appConf.Global.ExportFilePath = "/tmp"
+	}
+
+	res := GrafanaResult{
 		Data:     data.Responses[0].Hits.Hits,
 		BasePath: appConf.Global.ExportFilePath,
 		FileName: fileName,
 	}
+	return res
 }
 
 // 慢查询日志的字段的中文意思映射
-func (cr *CSVResult) slowQueryFieldsMap() []Field {
+func (gra *GrafanaResult) FieldsMap() {
 	// [object Object]      类型    占有内存        Key数量 元素数量
-	return []Field{
+	gra.Fields = []Field{
 		{"@timestamp", "时间戳"},
 		{"db_name", "数据库"},
 		{"db_user", "数据库用户名"},
@@ -55,33 +95,32 @@ func (cr *CSVResult) slowQueryFieldsMap() []Field {
 }
 
 // 构造返回慢查询的中文列名
-func (cr *CSVResult) slowQueryColNames() []string {
+func (gra *GrafanaResult) generateColNames() []string {
 	// [object Object]      类型    占有内存        Key数量 元素数量
-	fields := cr.slowQueryFieldsMap()
-	colNames := make([]string, len(fields))
-	for k, f := range fields {
-		colNames[k] = f.ColName
+	colNames := make([]string, len(gra.Fields))
+	for i, field := range gra.Fields {
+		colNames[i] = field.ColName
 	}
 	return colNames
 }
 
 // 转换成CSV文件并存储在本地
-func (cr *CSVResult) Convert() (string, error) {
-	err := pathIsExist(cr.BasePath)
+func (gra *GrafanaResult) Convert() (string, error) {
+	err := pathIsExist(gra.BasePath)
 	if err != nil {
 		return "", err
 	}
 
-	if beforePath, ok := strings.CutSuffix(cr.BasePath, "/"); ok {
-		cr.BasePath = beforePath
+	if beforePath, ok := strings.CutSuffix(gra.BasePath, "/"); ok {
+		gra.BasePath = beforePath
 	}
 	now := time.Now().Format("20060102150405")
-	if cr.FileName == "" {
-		cr.FileName = "unknown_mysql_slow_query"
+	if gra.FileName == "" {
+		gra.FileName = "unknown_mysql_slow_query"
 	}
-	cr.FileName = cr.FileName + "_" + now + ".csv" // 完整文件名
-	absFilePath := cr.BasePath + "/" + cr.FileName // 绝对路径
-	cr.FullPath = absFilePath
+	gra.FileName = gra.FileName + "_" + now + ".csv" // 完整文件名
+	absFilePath := gra.BasePath + "/" + gra.FileName // 绝对路径
+	gra.FullPath = absFilePath
 	f, err := os.Create(absFilePath)
 	if err != nil {
 		return "", err
@@ -94,21 +133,20 @@ func (cr *CSVResult) Convert() (string, error) {
 	// 制作表头数据
 	w := csv.NewWriter(f)
 	defer w.Flush()
-	if cr.Data == nil {
+	if gra.Data == nil {
 		// 空数据直接返回
 		return "", errors.New("无数据")
 	}
 
-	var colNames []string = cr.slowQueryColNames()
-	var colKeys []Field = cr.slowQueryFieldsMap()
+	var colNames []string = gra.generateColNames()
 
 	// 写入表头
 	if err := w.Write(colNames); err != nil {
 		return "", errors.New("写入表头发生错误: " + err.Error())
 	}
 	// 写入结果集数据
-	for _, row := range cr.Data {
-		rowData := generateRowsData(row.Source, colKeys)
+	for _, row := range gra.Data {
+		rowData := gra.generateRowsData(row.Source)
 		err := w.Write(rowData)
 		if err != nil {
 			return "", errors.New("写入表头发生错误: " + err.Error())
@@ -118,9 +156,9 @@ func (cr *CSVResult) Convert() (string, error) {
 }
 
 // 提取行数据成切片(当前行)
-func generateRowsData(record map[string]any, headers []Field) []string {
-	row := make([]string, 0, len(headers))
-	for _, col := range headers {
+func (gra *GrafanaResult) generateRowsData(record map[string]any) []string {
+	row := make([]string, 0, len(gra.Fields))
+	for _, col := range gra.Fields {
 		var colData string
 		if val, exist := record[col.Key]; exist {
 			switch v := val.(type) {
