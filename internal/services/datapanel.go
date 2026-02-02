@@ -64,7 +64,6 @@ func Run() {
 	logger.Info("GitLab上传文件成功")
 
 	// 计算时间范围
-	appConf := conf.GetAppConfig()
 	startDays := time.Now().AddDate(0, 0, 0-appConf.Query.LookBackDays)
 	endDays := time.Now().AddDate(0, 0, -1)
 	comment := fmt.Sprintf("## %s至%s MySQL慢日志数据导出\n", startDays.Format("2006-01-02"), endDays.Format("2006-01-02"))
