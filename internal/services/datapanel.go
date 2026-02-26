@@ -43,6 +43,10 @@ func Run() {
 	graGen := NewConvertor(grafanaResp, "main_mysql_slow_log_weekly")
 	// 先服务商后自建
 	for _, gen := range []Convertor{aliGen, graGen} {
+		if gen == nil {
+			logger.Warn("跳过不支持的数据类型转换")
+			continue
+		}
 		filePath, err := gen.Convert()
 		if err != nil {
 			logger.Fatal("生成CSV文件失败: " + err.Error())
